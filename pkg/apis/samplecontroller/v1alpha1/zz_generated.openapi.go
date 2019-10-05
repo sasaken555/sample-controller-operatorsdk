@@ -65,7 +65,21 @@ func schema_pkg_apis_samplecontroller_v1alpha1_FooSpec(ref common.ReferenceCallb
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
 				Description: "FooSpec defines the desired state of Foo",
-				Properties:  map[string]spec.Schema{},
+				Properties: map[string]spec.Schema{
+					"deploymentName": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
+						},
+					},
+					"replicas": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int32",
+						},
+					},
+				},
+				Required: []string{"deploymentName", "replicas"},
 			},
 		},
 		Dependencies: []string{},
@@ -77,7 +91,15 @@ func schema_pkg_apis_samplecontroller_v1alpha1_FooStatus(ref common.ReferenceCal
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
 				Description: "FooStatus defines the observed state of Foo",
-				Properties:  map[string]spec.Schema{},
+				Properties: map[string]spec.Schema{
+					"availableReplicas": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int32",
+						},
+					},
+				},
+				Required: []string{"availableReplicas"},
 			},
 		},
 		Dependencies: []string{},
