@@ -104,6 +104,31 @@ func (r *ReconcileFoo) Reconcile(request reconcile.Request) (reconcile.Result, e
 	}
 
 	// (3) Create Deployment if not exist
+	deploymentName := foo.Spec.DeploymentName
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      deploymentName,
+			Namespace: request.Namespace,
+		},
+	}
+
+	if err := r.client.Get(ctx, client.ObjectKey{Namespace: foo.Namespace, Name: deploymentName}, deployment); err != nil {
+		if errors.IsNotFound(err) {
+			reqLogger.Info("Cloud not find existing Deployment for Foo, Creating one...")
+			deployment = newDeployment(foo)
+
+			if err := r.client.Create(ctx, deployment); err != nil {
+				reqLogger.Error(err, "Failed to create Deployment resource.")
+				return reconcile.Result{}, err
+			}
+
+			reqLogger.Info("Created Deployment resource for Foo.")
+			return reconcile.Result{}, nil
+		}
+
+		reqLogger.Error(err, "Failed to get Deployment resource.")
+		return reconcile.Result{}, err
+	}
 
 	// (4) Compare Deployment spec with Foo spec, adjust specs if not match
 
@@ -144,7 +169,40 @@ func (r *ReconcileFoo) cleanupOwnedResources(ctx context.Context, foo *samplecon
 }
 
 func labelsForFoo(name string) map[string]string {
-	return map[string]string{"app": "nginx", "controller": "foo"}
+	return map[string]string{"app": "nginx", "controller": name}
+}
+
+func newDeployment(foo *samplecontrollerv1alpha1.Foo) *appsv1.Deployment {
+	labels := labelsForFoo(foo.Name)
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      foo.Spec.DeploymentName,
+			Namespace: foo.Namespace,
+			Labels:    labels,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(foo, samplecontrollerv1alpha1.SchemeGroupVersion.WithKind("Foo")),
+			},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: foo.Spec.Replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:latest",
+						},
+					},
+				},
+			},
+		},
+	}
 }
 
 // SCAFFOLDED FUNCTION! REMOVE AFTER IMPLEMENTATION!!
