@@ -76,8 +76,6 @@ type ReconcileFoo struct {
 
 // Reconcile reads that state of the cluster for a Foo object and makes changes based on the state read
 // and what is in the Foo.Spec
-// TODO(user): Modify this Reconcile function to implement your Controller logic.  This example creates
-// a Pod as an example
 // Note:
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
@@ -131,6 +129,18 @@ func (r *ReconcileFoo) Reconcile(request reconcile.Request) (reconcile.Result, e
 	}
 
 	// (4) Compare Deployment spec with Foo spec, adjust specs if not match
+	if foo.Spec.Replicas != nil && *foo.Spec.Replicas == *deployment.Spec.Replicas {
+		reqLogger.Info("Unmatch spec", "foo.spec.replicas", foo.Spec.Replicas, "deployment.spec.replicas", deployment.Spec.Replicas)
+		reqLogger.Info("Deployment replicas is not equal to Foo replicas. Reconcile this.")
+
+		if err := r.client.Update(ctx, newDeployment(foo)); err != nil {
+			reqLogger.Error(err, "Faild to update Deployment spec for Foo.")
+			return reconcile.Result{}, err
+		}
+
+		reqLogger.Info("Updated Deployment spec for Foo.")
+		return reconcile.Result{}, nil
+	}
 
 	// (5) Update Foo's status
 
