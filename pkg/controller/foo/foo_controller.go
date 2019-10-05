@@ -129,7 +129,7 @@ func (r *ReconcileFoo) Reconcile(request reconcile.Request) (reconcile.Result, e
 	}
 
 	// (4) Compare Deployment spec with Foo spec, adjust specs if not match
-	if foo.Spec.Replicas != nil && *foo.Spec.Replicas == *deployment.Spec.Replicas {
+	if foo.Spec.Replicas != nil && *foo.Spec.Replicas != *deployment.Spec.Replicas {
 		reqLogger.Info("Unmatch spec", "foo.spec.replicas", foo.Spec.Replicas, "deployment.spec.replicas", deployment.Spec.Replicas)
 		reqLogger.Info("Deployment replicas is not equal to Foo replicas. Reconcile this.")
 
