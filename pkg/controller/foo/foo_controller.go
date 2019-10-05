@@ -4,14 +4,14 @@ import (
 	"context"
 
 	samplecontrollerv1alpha1 "github.com/sasaken555/sample-controller-operatorsdk/pkg/apis/samplecontroller/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -51,9 +51,8 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
-	// TODO(user): Modify this to be the types you create that are owned by the primary resource
-	// Watch for changes to secondary resource Pods and requeue the owner Foo
-	err = c.Watch(&source.Kind{Type: &corev1.Pod{}}, &handler.EnqueueRequestForOwner{
+	// Watch for changes to secondary resource Deployments and requeue the owner Foo
+	err = c.Watch(&source.Kind{Type: &appsv1.Deployment{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
 		OwnerType:    &samplecontrollerv1alpha1.Foo{},
 	})
@@ -85,50 +84,70 @@ type ReconcileFoo struct {
 func (r *ReconcileFoo) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling Foo")
+	ctx := context.Background()
 
-	// Fetch the Foo instance
-	instance := &samplecontrollerv1alpha1.Foo{}
-	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
-	if err != nil {
+	// (1) Fetch Foo Object
+	foo := &samplecontrollerv1alpha1.Foo{}
+	if err := r.client.Get(ctx, request.NamespacedName, foo); err != nil {
 		if errors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
+			reqLogger.Info("Foo not found. Ignore not Found.")
 			return reconcile.Result{}, nil
 		}
-		// Error reading the object - requeue the request.
+		reqLogger.Error(err, "Failed to get Foo.")
 		return reconcile.Result{}, err
 	}
 
-	// Define a new Pod object
-	pod := newPodForCR(instance)
-
-	// Set Foo instance as the owner and controller
-	if err := controllerutil.SetControllerReference(instance, pod, r.scheme); err != nil {
+	// (2) Delete old Deployment owned by Foo
+	if err := r.cleanupOwnedResources(ctx, foo); err != nil {
+		reqLogger.Error(err, "Failed to cleanup old Deployment resources for this Foo")
 		return reconcile.Result{}, err
 	}
 
-	// Check if this Pod already exists
-	found := &corev1.Pod{}
-	err = r.client.Get(context.TODO(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		reqLogger.Info("Creating a new Pod", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name)
-		err = r.client.Create(context.TODO(), pod)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
+	// (3) Create Deployment if not exist
 
-		// Pod created successfully - don't requeue
-		return reconcile.Result{}, nil
-	} else if err != nil {
-		return reconcile.Result{}, err
-	}
+	// (4) Compare Deployment spec with Foo spec, adjust specs if not match
 
-	// Pod already exists - don't requeue
-	reqLogger.Info("Skip reconcile: Pod already exists", "Pod.Namespace", found.Namespace, "Pod.Name", found.Name)
+	// (5) Update Foo's status
+
 	return reconcile.Result{}, nil
 }
 
+func (r *ReconcileFoo) cleanupOwnedResources(ctx context.Context, foo *samplecontrollerv1alpha1.Foo) error {
+	reqLogger := log.WithValues("Request.Namespace", foo.Namespace, "Request.Name", foo.Name)
+	reqLogger.Info("finding existing Deployments for Foo resource")
+
+	deployments := &appsv1.DeploymentList{}
+	labelSelector := labels.SelectorFromSet(labelsForFoo(foo.Name))
+	listOps := &client.ListOptions{
+		Namespace:     foo.Namespace,
+		LabelSelector: labelSelector,
+	}
+	if err := r.client.List(ctx, listOps, deployments); err != nil {
+		reqLogger.Error(err, "Failed to get list of Deployments")
+		return err
+	}
+
+	for _, deployment := range deployments.Items {
+		if deployment.Name == foo.Spec.DeploymentName {
+			continue
+		}
+
+		if err := r.client.Delete(ctx, &deployment); err != nil {
+			reqLogger.Error(err, "Failed to delete Deployment resource")
+			return err
+		}
+
+		reqLogger.Info("Deleted old Deployment resource for Foo", "deploymentName", deployment.Name)
+	}
+
+	return nil
+}
+
+func labelsForFoo(name string) map[string]string {
+	return map[string]string{"app": "nginx", "controller": "foo"}
+}
+
+// SCAFFOLDED FUNCTION! REMOVE AFTER IMPLEMENTATION!!
 // newPodForCR returns a busybox pod with the same name/namespace as the cr
 func newPodForCR(cr *samplecontrollerv1alpha1.Foo) *corev1.Pod {
 	labels := map[string]string{
